@@ -38,20 +38,27 @@ var Message = make(chan string, 1)
 
 // 消息广播中心，所有消息由此分发
 func Manager() {
-	for {
-		select {
-		// 读到消息后，发送给每个在线的user
-		case msg := <-Message:
-			//　广播消息 给每个在线User
-			for _, user := range onlineMap {
-				user.msgChan <- msg
-				// 每个user 返回给各自的客户端
-				// 目的: 消息广播给每个客户端， 如果去做，服务器写给每个客户端
-				// 做法: 服务器一直读取对应User 的msgChan
-			}
-		default:
+	// for range channel 当通道关闭时，才会停止，所以可以用此代替下面的代码
+	for msg := range Message {
+		for _, user := range onlineMap {
+			user.msgChan <- msg
+			// 每个user 返回给各自的客户端
+			// 目的: 消息广播给每个客户端， 如果去做，服务器写给每个客户端
+			// 做法: 服务器一直读取对应User 的msgChan
 		}
 	}
+
+	// for {
+	// 	// 读到消息后，发送给每个在线的user
+	// 	msg := <-Message
+	// 	//　广播消息 给每个在线User
+	// 	for _, user := range onlineMap {
+	// 		user.msgChan <- msg
+	// 		// 每个user 返回给各自的客户端
+	// 		// 目的: 消息广播给每个客户端， 如果去做，服务器写给每个客户端
+	// 		// 做法: 服务器一直读取对应User 的msgChan
+	// 	}
+	// }
 }
 
 // 处理处理客户端连接请求，用于通信的socket
@@ -91,15 +98,10 @@ func HandleConn(conn net.Conn) {
 		}
 	}()
 
-	// 从自己的消息列表钟读取信息
+	// 从自己的消息列表中读取信息
 	go func() {
-		for {
-			// 读取自己的msgChan
-			select {
-			case msg := <-user.msgChan:
-				conn.Write([]byte(msg))
-			default:
-			}
+		for msg := range user.msgChan {
+			conn.Write([]byte(msg))
 		}
 	}()
 	buf := make([]byte, 4096)
