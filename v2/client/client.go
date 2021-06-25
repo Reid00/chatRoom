@@ -53,6 +53,7 @@ func main() {
 			log.Println("conn.Read error: ", err)
 			return
 		}
-		log.Println("server msg: ", string(buf[:n]))
+		// log.Println("server msg: ", string(buf[:n]))
+		log.Println(string(buf[:n]))
 	}
 }

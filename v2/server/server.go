@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strings"
 )
 
 // 创建用户结构体
@@ -35,24 +36,20 @@ var onlineMap = make(map[string]*User)
 // 定义消息管理中心，由此广播给每个用户消息
 var Message = make(chan string, 1)
 
-// 管理中心
-// 管理用户在线状态
-// 登陆提醒, 离线提醒
-// 消息广播等
+// 消息广播中心，所有消息由此分发
 func Manager() {
 	for {
 		select {
 		// 读到消息后，发送给每个在线的user
 		case msg := <-Message:
 			//　广播消息 给每个在线User
-			fmt.Println(msg)
 			for _, user := range onlineMap {
 				user.msgChan <- msg
 				// 每个user 返回给各自的客户端
 				// 目的: 消息广播给每个客户端， 如果去做，服务器写给每个客户端
 				// 做法: 服务器一直读取对应User 的msgChan
 			}
-
+		default:
 		}
 	}
 }
@@ -94,8 +91,19 @@ func HandleConn(conn net.Conn) {
 		}
 	}()
 
+	// 从自己的消息列表钟读取信息
+	go func() {
+		for {
+			// 读取自己的msgChan
+			select {
+			case msg := <-user.msgChan:
+				conn.Write([]byte(msg))
+			default:
+			}
+		}
+	}()
 	buf := make([]byte, 4096)
-	// 读取客户端发来的消息 写到 Message + 从自己的msgChan 中读取消息
+	// 读取客户端发来的消息 写到 Message
 	for {
 		n, err := conn.Read(buf)
 		if n == 0 {
@@ -108,14 +116,8 @@ func HandleConn(conn net.Conn) {
 			Message <- msg
 			continue
 		}
-		msg := string(buf[:n])
+		msg := fmt.Sprintf("[%s]的消息: %s", addr, strings.TrimSpace(string(buf[:n])))
 		Message <- msg
-		// select {
-		// case msg := <-user.msgChan:
-		// 	// 读多少，处理多少
-		// 	conn.Write([]byte(msg))
-		// default:
-		// }
 	}
 
 }
