@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 )
 
 // 创建用户结构体
@@ -65,6 +66,8 @@ func Manager() {
 func HandleConn(conn net.Conn) {
 	defer conn.Close()
 
+	// 判断用户是否活跃
+	isActivate := make(chan struct{})
 	// 获取客户端地址
 	addr := conn.RemoteAddr().String()
 	// 用户信息
@@ -104,22 +107,56 @@ func HandleConn(conn net.Conn) {
 			conn.Write([]byte(msg))
 		}
 	}()
+
 	buf := make([]byte, 4096)
 	// 读取客户端发来的消息 写到 Message
+	go func() {
+		for {
+			n, err := conn.Read(buf)
+			if n == 0 {
+				msg := fmt.Sprintf("[%s] 退出群聊...", addr)
+				Message <- msg
+				return
+			}
+			if err != nil {
+				msg := fmt.Sprintf("从%s的客户端conn.Read读取失败.", addr)
+				Message <- msg
+				continue
+			}
+			// 查看在线人员情况
+			if string(buf[:n]) == "who\r\n" || string(buf[:n]) == "who\n" { // buf[:n-1] 去除最后面的\r\n
+				// 把在线成员发给单独对应的客户端
+				for _, val := range onlineMap {
+					// log.Println(val.name)
+					conn.Write([]byte("在线有: " + val.name))
+				}
+			} else if input := strings.TrimSpace(strings.ToLower(string(buf[:n]))); len(input) >= 8 && strings.HasPrefix(input, "rename|") { // 在线该名称 rename|\r\n
+				newName := strings.Split(string(buf[:n]), "|")[1]
+				newName = strings.TrimSpace(newName)
+				// 更新onlineMap, 先删旧的，再添加新的
+				delete(onlineMap, user.name)
+				user.name = newName
+				onlineMap[newName] = user
+				conn.Write([]byte("更新之后为: " + user.name))
+			} else {
+				msg := "[" + user.name + "]" + "的消息是: " + strings.TrimSpace(string(buf[:n]))
+				Message <- msg
+			}
+			isActivate <- struct{}{}
+
+		}
+	}()
+	// 监控当前状态
 	for {
-		n, err := conn.Read(buf)
-		if n == 0 {
-			msg := fmt.Sprintf("[%s] 退出群聊...", addr)
+		select {
+		case <-time.After(time.Second * 5): // 超时踢出group
+			msg := "[" + user.name + "]" + "超过五秒未发言, 强行踢出"
 			Message <- msg
+			delete(onlineMap, user.name)
 			return
+		case <-isActivate:
+
 		}
-		if err != nil {
-			msg := fmt.Sprintf("从%s的客户端conn.Read读取失败.", addr)
-			Message <- msg
-			continue
-		}
-		msg := fmt.Sprintf("[%s]的消息: %s", addr, strings.TrimSpace(string(buf[:n])))
-		Message <- msg
 	}
 
 }
